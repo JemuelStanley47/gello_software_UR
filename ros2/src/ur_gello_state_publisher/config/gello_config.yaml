@@ -1,0 +1,9 @@
+usb-FTDI_USB__-__Serial_Converter_FT9HD7RD-if00-port0:
+  side: "right"
+  num_joints: 6
+  joint_names: ["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"]
+  joint_signs: [1, 1, -1, 1, 1, -1]
+  gripper: true
+  best_offsets: [3.14, 3.14, 3.14, 3.14, 3.14, 3.14]
+  gripper_range_rad: [2.54, 3.5]
+  publish_rate: 500
