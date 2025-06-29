@@ -12,7 +12,7 @@ setup(
             ['resource/' + package_name]),
         ("share/" + package_name, ["package.xml"]),
         ("share/" + package_name + "/config", glob.glob("config/*.yaml")),
-        ("share/" + package_name + "/launch", ["launch/main.launch.py"]),
+        ("share/" + package_name + "/launch", glob.glob("launch/*.launch.py")),
     ],
     install_requires=['setuptools', 'dynamixel_sdk'],
     zip_safe=True,
@@ -23,7 +23,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         "console_scripts": [
-            "gello_publisher = ur_gello_state_publisher.gello_publisher:main"
+            "gello_publisher = ur_gello_state_publisher.gello_publisher:main",
+            "gello_to_ur_trajectory = ur_gello_state_publisher.gello_to_ur_trajectory:main",
         ],
     },
 )
