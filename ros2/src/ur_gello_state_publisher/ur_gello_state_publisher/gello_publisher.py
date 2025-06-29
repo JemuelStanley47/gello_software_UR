@@ -1,170 +1,156 @@
 import os
 import sys
 import glob
-from typing import Tuple
+import time
+import yaml
+import numpy as np
+from typing import Dict, Optional, Tuple, Sequence
+
 import rclpy
 from rclpy.node import Node
-import numpy as np
+from rclpy.qos import QoSProfile
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float32
-import yaml
 from ament_index_python.packages import get_package_share_directory, get_package_prefix
-from rclpy.qos import QoSProfile
+
+# Setup import path for gello framework
+gello_path = os.path.abspath(
+    os.path.join(get_package_prefix("ur_gello_state_publisher"), "../../../")
+)
+sys.path.insert(0, gello_path)
+
+from gello.agents.gello_agent import PORT_CONFIG_MAP, DynamixelRobotConfig
+from gello.agents.agent import Agent
+
+
+class URGelloAgent(Agent):
+    """Wrapper around Dynamixel-based Gello robot for UR5e."""
+
+    def __init__(self, port: str, config: DynamixelRobotConfig):
+        self._robot = config.make_robot(port=port)
+
+    def get_joint_state(self) -> np.ndarray:
+        return self._robot.get_joint_state()
+
+    def act(self, obs):
+        """Return the current joint state as the action."""
+        # NOTE: Required for Agent interface compliance, not required if using ros2_control or just publishing joint states.
+        return self._robot.get_joint_state() 
 
 class GelloPublisher(Node):
     def __init__(self):
         super().__init__("gello_publisher")
 
-        default_com_port = self.determine_default_com_port()
-        self.declare_parameter("com_port", default_com_port)
-        self.com_port = self.get_parameter("com_port").get_parameter_value().string_value
-        self.port = self.com_port.split("/")[-1]
+        self.com_port = self.declare_and_get_com_port()
+        self.port = os.path.basename(self.com_port)
 
-        config_path = os.path.join(
-            get_package_share_directory("ur_gello_state_publisher"),
-            "config",
-            "gello_config.yaml",
+        self.config = self.load_yaml_config()
+        port_cfg = self.config[self.port]
+
+        self.num_robot_joints = port_cfg["num_joints"]
+        self.joint_names = tuple(port_cfg["joint_names"])
+        self.joint_signs = port_cfg["joint_signs"]
+        self.best_offsets = np.array(port_cfg["best_offsets"])
+        self.gripper = port_cfg.get("gripper", False)
+
+        # Optional params
+        self.gripper_config = tuple(port_cfg.get("gripper_config", [7, 200, 158]))
+        self.baudrate = port_cfg.get("baudrate", 57600)
+        config_rate = port_cfg.get("publish_rate", -1.0)
+
+        self.__post_init__()
+
+        # Load Agent
+        custom_cfg = DynamixelRobotConfig(
+            joint_ids=tuple(range(1, self.num_robot_joints + 1)),
+            joint_offsets=tuple(self.best_offsets),
+            joint_signs=tuple(self.joint_signs),
+            gripper_config=self.gripper_config,
         )
-        self.get_values_from_config(config_path)
+        self.robot = URGelloAgent(port=self.com_port, config=custom_cfg)
 
-        # Load user-defined or fallback publish rate
-        self.declare_parameter("publish_rate", -1.0)
-        user_rate = self.get_parameter("publish_rate").get_parameter_value().double_value
-
-        config_rate = self.config.get("publish_rate", -1.0)
-        estimated_rate = self.estimate_driver_polling_rate()
-        # estimated_safe = min(estimated_rate * 0.8, 100.0)
-
-        self.publish_rate = self.resolve_publish_rate(user_rate, config_rate, estimated_rate)
+        # Resolve publish rate
+        user_rate = self.declare_and_get_publish_rate()
+        estimate = self.estimate_driver_polling_rate()
+        self.publish_rate = self.resolve_publish_rate(user_rate, config_rate, estimate)
         self.get_logger().info(f"Using publish rate: {self.publish_rate:.1f} Hz")
 
-        # Publishers
-        self.qos = QoSProfile(depth=10)
-        self.robot_joint_publisher = self.create_publisher(JointState, "/gello/joint_states", self.qos)
-        self.gripper_joint_publisher = self.create_publisher(
-            Float32, "/gripper_client/target_gripper_width_percent", self.qos
-        )
+        # ROS 2 publishers
+        qos = QoSProfile(depth=10)
+        self.robot_joint_publisher = self.create_publisher(JointState, "/gello/joint_states", qos)
+        self.gripper_joint_publisher = self.create_publisher(Float32, "/gripper_client/target_gripper_width_percent", qos)
 
         # Timer
         self.timer = self.create_timer(1.0 / self.publish_rate, self.publish_joint_jog)
 
-    def resolve_publish_rate(self, user_rate: float, config_rate: float, estimate: float) -> float:
-        """Resolve final publish rate, preferring: user param > config file > estimated.
-        Ensures the final rate does not exceed the estimated max supported by hardware.
-        """
-        preferred = estimate  # Fallback
-        if user_rate > 0:
-            preferred = user_rate
-        elif config_rate > 0:
-            preferred = config_rate
-
-        # Cap to what hardware supports
-        final_rate = min(preferred, estimate)
-        self.get_logger().info(
-            f"Resolved publish rate: {final_rate:.1f} Hz "
-            f"(User: {user_rate}, Config: {config_rate}, Max HW: {estimate:.1f})"
-        )
-        return final_rate
-
-        
-    def determine_default_com_port(self) -> str:
-        matches = glob.glob("/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter*")
-        if matches:
-            self.get_logger().info(f"Auto-detected com_ports: {matches}")
-            return matches[0]
-        else:
-            self.get_logger().warn("No com_ports detected. Please specify the com_port manually.")
-            return "INVALID_COM_PORT"
-
-    def get_values_from_config(self, config_file: str):
-        with open(config_file, "r") as file:
-            self.config = yaml.safe_load(file)
-
-        self.num_robot_joints: int = self.config[self.port]["num_joints"]
-        """The number of joints in the robot."""
-
-        self.joint_signs: Tuple[float, ...] = self.config[self.port]["joint_signs"]
-        """Depending on how the motor is mounted on the Gello, its rotation direction can be reversed."""
-
-        self.gripper: bool = self.config[self.port]["gripper"]
-        """Whether or not the gripper is attached."""
-
-        joint_ids = list(range(1, self.num_joints + 1))
-        self.add_dynamixel_driver_path()
-        from gello.dynamixel.driver import DynamixelDriver
-
-        self.driver = DynamixelDriver(joint_ids, port=self.com_port, baudrate=57600)
-        """The driver for the Dynamixel motors."""
-
-        self.best_offsets = np.array(self.config[self.port]["best_offsets"])
-        """The best offsets for the joints."""
-
-        self.gripper_range_rad: Tuple[float, float] = self.config[self.port]["gripper_range_rad"]
-        """The range of the gripper in radians."""
-        self.joint_names: Tuple[str, ...] = tuple(self.config[self.port]["joint_names"])
-        """The names of the joints in the robot."""
-        self.__post_init__()
-
     def __post_init__(self):
         assert len(self.joint_signs) == self.num_robot_joints
-        for idx, j in enumerate(self.joint_signs):
-            assert j == -1 or j == 1, f"Joint idx: {idx} should be -1 or 1, but got {j}."
+        for i, sign in enumerate(self.joint_signs):
+            assert sign in (-1, 1), f"Joint sign for joint {i} must be -1 or 1"
 
-    @property
-    def num_joints(self) -> int:
-        return self.num_robot_joints + (1 if self.gripper else 0)
-
-    def publish_joint_jog(self):
-        current_joints = self.driver.get_joints()
-        self.get_logger().debug(f"Raw joint positions: {current_joints.shape}")
-        current_robot_joints = current_joints[: self.num_robot_joints]
-        current_joints_corrected = (current_robot_joints - self.best_offsets) * self.joint_signs
-
-        robot_joint_states = JointState()
-        robot_joint_states.header.stamp = self.get_clock().now().to_msg()
-        robot_joint_states.name = self.joint_names
-        robot_joint_states.header.frame_id = "base_link"
-        robot_joint_states.position = [float(joint) for joint in current_joints_corrected]
-
-        gripper_joint_states = Float32()
-        if self.gripper:
-            gripper_position = current_joints[-1]
-            self.get_logger().debug(f"Raw gripper position: {gripper_position}")
-            gripper_joint_states.data = self.gripper_readout_to_percent(gripper_position)
+    def declare_and_get_com_port(self) -> str:
+        matches = glob.glob("/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter*")
+        default_port = matches[0] if matches else "INVALID_COM_PORT"
+        if matches:
+            self.get_logger().info(f"Auto-detected com_ports: {matches}")
         else:
-            gripper_joint_states.data = 0.0
+            self.get_logger().warn("No com_ports detected. Please specify manually.")
+        self.declare_parameter("com_port", default_port)
+        return self.get_parameter("com_port").get_parameter_value().string_value
 
-        self.robot_joint_publisher.publish(robot_joint_states)
-        self.gripper_joint_publisher.publish(gripper_joint_states)
+    def declare_and_get_publish_rate(self) -> float:
+        self.declare_parameter("publish_rate", -1.0)
+        return self.get_parameter("publish_rate").get_parameter_value().double_value
 
-    def gripper_readout_to_percent(self, gripper_position: float) -> float:
-        gripper_percent = (gripper_position - self.gripper_range_rad[0]) / (
-            self.gripper_range_rad[1] - self.gripper_range_rad[0]
+    def load_yaml_config(self) -> dict:
+        config_path = os.path.join(
+            get_package_share_directory("ur_gello_state_publisher"),
+            "config",
+            "gello_config.yaml"
         )
-        return max(0.0, min(1.0, gripper_percent))
+        with open(config_path, "r") as f:
+            return yaml.safe_load(f)
 
-    def add_dynamixel_driver_path(self):
-        gello_path = os.path.abspath(
-            os.path.join(get_package_prefix("ur_gello_state_publisher"), "../../../")
-        )
-        sys.path.insert(0, gello_path)
-
-    def estimate_driver_polling_rate(self, trials=50) -> float:
-        import time
-        times = []
+    def estimate_driver_polling_rate(self, trials: int = 50) -> float:
+        durations = []
         for _ in range(trials):
             start = time.perf_counter()
-            _ = self.driver.get_joints()
+            _ = self.robot.get_joint_state()
             end = time.perf_counter()
-            times.append(end - start)
-
-        avg_duration = sum(times) / len(times)
-        rate = 1.0 / avg_duration
-        self.get_logger().info(
-            f"Estimated average polling duration: {avg_duration:.6f} s --> Max rate: {rate:.1f} Hz"
-        )
+            durations.append(end - start)
+        avg = sum(durations) / trials
+        rate = 1.0 / avg
+        self.get_logger().info(f"Estimated polling: {avg:.6f} s --> Max rate: {rate:.1f} Hz")
         return rate
 
+    def resolve_publish_rate(self, user: float, config: float, estimate: float) -> float:
+        if user > 0:
+            preferred = user
+        elif config > 0:
+            preferred = config
+        else:
+            preferred = estimate
+        final = min(preferred, estimate)
+        self.get_logger().info(
+            f"Resolved publish rate: {final:.1f} Hz (User: {user}, Config: {config}, Max HW: {estimate:.1f})"
+        )
+        return final
+
+    def publish_joint_jog(self):
+        joints = self.robot.get_joint_state()
+        self.get_logger().debug(f"Current joint state: {joints}")
+        robot_joints = joints[:self.num_robot_joints]
+
+        msg = JointState()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = "base_link"
+        msg.name = self.joint_names
+        msg.position = list(robot_joints)
+        self.robot_joint_publisher.publish(msg)
+
+        gripper_msg = Float32()
+        gripper_msg.data = float(joints[-1]) if self.gripper else 0.0
+        self.gripper_joint_publisher.publish(gripper_msg)
 
 
 def main(args=None):

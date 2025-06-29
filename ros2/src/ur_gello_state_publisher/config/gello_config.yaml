@@ -1,9 +1,10 @@
 usb-FTDI_USB__-__Serial_Converter_FT9HD7RD-if00-port0:
   side: "right"
-  num_joints: 6
+  num_joints: 6 # Number of joints in the robot arm (excluding gripper)
   joint_names: ["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"]
-  joint_signs: [1, 1, -1, 1, 1, -1]
+  joint_signs: [1, 1, -1, 1, 1, 1]
   gripper: true
-  best_offsets: [3.14, 3.14, 3.14, 3.14, 3.14, 3.14]
-  gripper_range_rad: [2.54, 3.5]
+  best_offsets: [4.71238898038469, 4.71238898038469, 3.141592653589793, 3.141592653589793, 6.283185307179586, 4.71238898038469]
+  gripper_config: [7, 200, 158]  # Example: joint_id=7, open_deg=200, close_deg=158
   publish_rate: 500
+  baudrate: 57600
