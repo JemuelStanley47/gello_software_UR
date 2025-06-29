@@ -4,7 +4,8 @@ usb-FTDI_USB__-__Serial_Converter_FT9HD7RD-if00-port0:
   joint_names: ["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"]
   joint_signs: [1, 1, -1, 1, 1, 1]
   gripper: true
-  best_offsets: [4.71238898038469, 4.71238898038469, 3.141592653589793, 3.141592653589793, 6.283185307179586, 4.71238898038469]
+  best_offsets: [4.71238, 4.71238, 3.14159, 3.14159, 6.28319, 3.14159]  # Offsets for each joint in radians
   gripper_config: [7, 200, 158]  # Example: joint_id=7, open_deg=200, close_deg=158
   publish_rate: 500
   baudrate: 57600
+  start_joints: [0.0, -1.57079, 1.57079, -1.57079, -1.57079, 0.0]  # Initial joint positions in radians

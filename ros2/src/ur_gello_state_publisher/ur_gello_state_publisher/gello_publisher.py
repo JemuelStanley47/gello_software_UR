@@ -19,7 +19,7 @@ gello_path = os.path.abspath(
 )
 sys.path.insert(0, gello_path)
 
-from gello.agents.gello_agent import PORT_CONFIG_MAP, DynamixelRobotConfig
+from gello.agents.gello_agent import DynamixelRobotConfig
 from gello.agents.agent import Agent
 
 
@@ -155,10 +155,24 @@ class GelloPublisher(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = GelloPublisher()
-    rclpy.spin(node)
-    node.destroy_node()
-    rclpy.shutdown()
+    node = None
+    try:
+        node = GelloPublisher()
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        if node:
+            node.get_logger().info("Keyboard interrupt received. Shutting down...")
+    except Exception as e:
+        if node:
+            node.get_logger().error(f"Exception occurred: {e}")
+        else:
+            print(f"Exception occurred before node creation: {e}")
+    finally:
+        # Only shutdown if not already shutdown
+        if rclpy.ok():
+            if node is not None:
+                node.destroy_node()
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":
