@@ -1,6 +1,23 @@
 # Changelog
 
-### Minor Updates [(Commit)](https://github.com/JemuelStanley47/gello_software_UR/commit/a2729f5d09c446b3a27c6b04b1b8424ba9cd149f)
+## Minor Updates ([(Commit)](https://github.com/JemuelStanley47/gello_software_UR/commit/3f776ea622de3f170874c29c7767a562afa87e13)) ([(Commit)](https://github.com/JemuelStanley47/gello_software_UR/commit/b21e320b10a76207353109f495ac01e622aa959a)) 
+### Added 
+- `send.trajectory.launch.py`: Launch file to initialize Gello-to-UR trajectory streaming node.
+- `gello_to_ur_trajectory.py`: Node that listens to `/gello/joint_states` and publishes to UR ROS 2 Driver's `scaled_joint_trajectory_controller`.
+- Integration with `ros2_control`-based UR driver using position control via `JointTrajectory` messages.
+- Update `setup.py` to include new executable script.
+
+### Changed
+- Refactored Gello UR state publisher for cleaner exit handling and improved configuration parsing aligned with Gello hardware setup.
+- Ensured compatibility with both IsaacSim robot and URSim for validation.
+
+### Notes
+- The UR driver already launches the necessary controllers; this node acts as a bridge for joint command streaming.
+- Currently uses position control; movement is responsive after tuning `time_from_start` and update `rate`.
+- Velocity limit warnings appear on UR teach pendant—velocity control mode may be considered in the future for smoother operation.
+
+
+## Minor Updates [(Commit)](https://github.com/JemuelStanley47/gello_software_UR/commit/a2729f5d09c446b3a27c6b04b1b8424ba9cd149f)
 
 - **Agent Integration**  
   Replaced direct usage of `DynamixelDriver` with `GelloAgent`, enabling cleaner abstraction and extensibility. Introduced `URGelloAgent` as a wrapper for easy configuration-based instantiation.
