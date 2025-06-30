@@ -1,7 +1,95 @@
 # GELLO ROS 2 humble integration
 
 This folder contains all required ROS 2 packages for using GELLO. 
+## 🔧 GELLO: UR_support ([by @JemuelStanley47](https://github.com/JemuelStanley47))
+📄 For a summary of key commits, check out [`CHANGELOG.md`](https://github.com/JemuelStanley47/gello_software_UR/blob/062f96e46dc89673cbf7a42f7a4e69e284b64f42/CHANGELOG.md)
+### Key updates:
+- ✅ Maintained the **GELLO-UR integration as a separate ROS 2 (humble) package** (`ur_gello_state_publisher`) to keep it modular. This mirrors the separation in the current Franka support and allows future flexibility (e.g. merging both under a unified package if desired).
+- 🔁 Switched from using Dynamixel-based logic (as in the Franka publisher) to the **Gello Agent interface**, which is more flexible and extensible.
+- 🚀 I’m using the `scaled_joint_trajectory_controller` that comes **pre-launched via the official `ur_robot_driver`** — no need to set up your own controllers.
+- 🎥 **Verified on URSim and IsaacSim**. 
 
+  Note: The IsaacSim playback appears jerky due to asset tuning issues, not controller performance.  
+
+> ⚠️ Note: Gripper integration is **not implemented yet**, but I suggest following a similar structure to the Franka package for that.
+
+---
+
+### 📁 Overview of the New Files
+
+| File | Description |
+|------|-------------|
+| `gello_publisher.py` | Publishes GELLO joint states and commands to ROS2 topic: `/gello/joint_states`  |
+| `gello_to_ur_trajectory.py` | Subscribes to `/gello/joint_states` and publishes `JointTrajectory` to the UR ROS 2 driver |
+| `main.launch.py` | Main launch file for the package |
+| `send.trajectory.launch.py` | Launch file for the trajectory publisher node |
+| `config/gello_config.yaml` | Port-to-joint name mapping, matched to Gello hardware setup |
+
+### Usage:
+#### 0. **Prerequisite: Start the UR ROS 2 Driver**
+
+Before launching the GELLO integration, ensure the [official UR ROS 2 driver](https://github.com/UniversalRobots/Universal_Robots_ROS2_Driver/tree/humble) is running and the `joint_trajectory_controller` is active.
+
+Start the UR driver (replace `robot_ip` with your UR robot's IP):
+
+```bash
+ros2 launch ur_robot_driver ur_control.launch.py ur_type:=ur5e robot_ip:=192.168.56.101
+```
+
+Check that the `joint_trajectory_controller` is active:
+
+```bash
+ros2 control list_controllers
+```
+
+Expected output should include:
+
+```scss
+joint_trajectory_controller        joint_trajectory_controller/JointTrajectoryController         active  
+joint_state_broadcaster            joint_state_broadcaster/JointStateBroadcaster                 active  
+forward_velocity_controller        velocity_controllers/JointGroupVelocityController             inactive
+io_and_status_controller           ur_controllers/GPIOController                                 active  
+forward_position_controller        position_controllers/JointGroupPositionController             inactive
+<MORE>
+```
+
+If it is not active, activate it with:
+
+```bash
+ros2 control switch_controllers --activate joint_trajectory_controller --deactivate forward_position_controller forward_velocity_controller
+```
+
+#### 1. Launch the gello state publisher
+`ur_gello_state_publisher:`
+```bash
+ros2 launch ur_gello_state_publisher main.launch.py com_port:=/dev/serial/by-id/<usb-FTDI_USB__-__Serial_Converter_<YOUR_DEVICE>>
+```
+Expected output:
+```scss
+[INFO] [launch]: All log files can be found below /home/spartan47/.ros/log/2025-06-29-19-11-01-931179-spartan47-135881
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [gello_publisher-1]: process started with pid [135882]
+[gello_publisher-1] [INFO] [1751238662.491977212] [gello_publisher]: Auto-detected com_ports: ['/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FT9HD7RD-if00-port0']
+[gello_publisher-1] [INFO] [1751238662.821164826] [gello_publisher]: Estimated polling: 0.002009 s --> Max rate: 497.7 Hz
+[gello_publisher-1] [INFO] [1751238662.821945762] [gello_publisher]: Resolved publish rate: 250.0 Hz (User: 250.0, Config: 500, Max HW: 497.7)
+[gello_publisher-1] [INFO] [1751238662.822823913] [gello_publisher]: Using publish rate: 250.0 Hz
+```
+This will publish the gello joint positions on `/gello/joint_states`
+
+#### 2. Launch the joint trajectory publisher
+`gello_to_ur_trajectory:`
+```bash
+ros2 launch ur_gello_state_publisher send.trajectory.launch.py 
+```
+Expected output:
+```scss
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [gello_to_ur_trajectory-1]: process started with pid [141861]
+[gello_to_ur_trajectory-1] [INFO] [1751240393.074761466] [gello_to_ur_trajectory]: Using joint names from config: ['shoulder_pan_joint', 'shoulder_lift_joint', 'elbow_joint', 'wrist_1_joint', 'wrist_2_joint', 'wrist_3_joint']
+[gello_to_ur_trajectory-1] [INFO] [1751240393.104581886] [gello_to_ur_trajectory]: GelloToURTrajectory initialized and listening to /gello/joint_states
+```
+---
+# 👇  **Official README below**
 ## Packages
 
 ### 1. `franka_fr3_arm_controllers`
